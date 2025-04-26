@@ -1,7 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { collection, getDocs, doc, setDoc, getDoc } from "firebase/firestore";
 import { db } from "./firebase";
 import "./App.css";
+import Navbar from "./components/Navbar";
+import CartDrawer from "./components/CartDrawer";
+import CategoryFilter from "./components/CategoryFilter";
+import ProductDetail from "./components/ProductDetail";
+import UserFormModal from "./components/UserFormModal";
 
 const INVENTED_PRODUCTS = [
   {
@@ -30,86 +35,18 @@ const INVENTED_PRODUCTS = [
   },
 ];
 
-function Navbar({ cartCount, onCartToggle }) {
-  return (
-    <nav className="navbar">
-      <span className="navbar-logo">Mi Super Tienda</span>
-      <div style={{ flex: 1 }} />
-      <button className="cart-btn" onClick={onCartToggle}>
-        🛒
-        {cartCount > 0 && <span className="cart-badge">{cartCount}</span>}
-      </button>
-    </nav>
-  );
-}
-
-function CartDrawer({ cart, products, onClose, onRemoveItem, onUpdateItem, onPay }) {
-  const total = cart.reduce((sum, item) => {
-    const prod = products.find((p) => p.id === item.productId);
-    if (!prod) return sum;
-    return sum + prod.price * item.quantity;
-  }, 0);
-
-  return (
-    <div className="cart-drawer-overlay" onClick={onClose}>
-      <aside className="cart-drawer" onClick={e => e.stopPropagation()}>
-        <div className="cart-drawer-header">
-          <h3>Tu Carrito</h3>
-          <button className="cart-drawer-close" onClick={onClose}>×</button>
-        </div>
-        <div className="cart-drawer-content">
-          {cart.length === 0 ? (
-            <p className="cart-empty">No hay productos en tu carrito.</p>
-          ) : (
-            cart.map(item => {
-              const prod = products.find(p => p.id === item.productId);
-              if (!prod) return null;
-              return (
-                <div className="drawer-item" key={item.productId}>
-                  <img src={prod.image} alt={prod.name} className="drawer-item-img" />
-                  <div style={{ flex: 1 }}>
-                    <div className="drawer-item-title">{prod.name}</div>
-                    <div className="drawer-item-controls">
-                      <span className="drawer-item-price">${prod.price.toFixed(2)}</span>
-                      <input
-                        type="number"
-                        className="drawer-item-qty"
-                        min={1}
-                        value={item.quantity}
-                        onChange={e => onUpdateItem(item.productId, Math.max(1, parseInt(e.target.value) || 1))}
-                      />
-                      <button className="drawer-item-delete" onClick={() => onRemoveItem(item.productId)}>Eliminar</button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-        <div className="cart-drawer-footer">
-          <div className="cart-drawer-total">
-            Total: <strong>${total.toFixed(2)}</strong>
-          </div>
-          <button
-            className="cart-paypal-btn"
-            onClick={onPay}
-            disabled={cart.length === 0}
-          >
-            Pagar con PayPal
-          </button>
-        </div>
-      </aside>
-    </div>
-  );
-}
-
 function App() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [cart, setCart] = useState([]); // [{ productId, quantity }]
   const [showCart, setShowCart] = useState(false);
+  const [category, setCategory] = useState(""); // ""=todas
+  const [showDetail, setShowDetail] = useState(false);
+  const [detailProduct, setDetailProduct] = useState(null);
+  const [showUserForm, setShowUserForm] = useState(false);
+  const [orderId, setOrderId] = useState("");
+  const [userData, setUserData] = useState(null);
 
-  // Seed the database with invented products if they don't exist
   useEffect(() => {
     const seedProducts = async () => {
       for (const product of INVENTED_PRODUCTS) {
@@ -123,10 +60,8 @@ function App() {
           image: product.imageUrl,
         };
         if (!docSnap.exists()) {
-          // Si no existe, lo crea
           await setDoc(docRef, newProductData);
         } else {
-          // Si hay alguna diferencia en cualquier campo, lo actualiza
           const dbData = docSnap.data();
           const needsUpdate = Object.keys(newProductData).some(
             key => dbData[key] !== newProductData[key]
@@ -158,18 +93,27 @@ function App() {
     fetchProducts();
   }, []);
 
-  // Añade producto o aumenta cantidad en carrito
-  const addToCart = (productId) => {
+  const categories = useMemo(() =>
+    Array.from(new Set(products.map(p => p.category))).filter(Boolean), [products]
+  );
+
+  const filteredProducts = useMemo(() =>
+    category ? products.filter(p => p.category === category) : products,
+    [products, category]
+  );
+
+  // Añade producto o aumenta cantidad en carrito, admite cantidad específica
+  const addToCart = (productId, amount = 1) => {
     setCart((prevCart) => {
       const existing = prevCart.find((item) => item.productId === productId);
       if (existing) {
         return prevCart.map((item) =>
           item.productId === productId
-            ? { ...item, quantity: item.quantity + 1 }
+            ? { ...item, quantity: item.quantity + amount }
             : item
         );
       } else {
-        return [...prevCart, { productId, quantity: 1 }];
+        return [...prevCart, { productId, quantity: amount }];
       }
     });
   };
@@ -192,12 +136,25 @@ function App() {
     );
   };
 
-  // Simula pago
+  // Simula inicio del pago (muestra formulario de usuario)
   const handlePay = () => {
-    alert("¡Gracias por su compra usando PayPal (simulado)!");
-    setCart([]); // Vacía el carrito después de pagar
-    setShowCart(false);
+    setShowUserForm(true);
   };
+
+  // Finaliza compra (simula guardar, genera ID)
+  const handleUserFormSubmit = (userdata) => {
+    setUserData(userdata);
+    // Simula ID orden "ORDxxx"
+    setOrderId('ORD' + Math.floor(Math.random() * 1000000));
+    setCart([]); 
+  };
+
+  // Al cerrar el userform, limpia
+  const closeUserForm = () => {
+    setShowUserForm(false);
+    setOrderId("");
+    setUserData(null);
+  }
 
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -206,12 +163,24 @@ function App() {
       <Navbar cartCount={cartCount} onCartToggle={() => setShowCart(true)} />
       <div className="app-container">
         <h1>¡Bienvenido a nuestra tienda!</h1>
+        {/* Filtrado por categoría */}
+        <CategoryFilter
+          categories={categories}
+          selected={category}
+          onSelect={setCategory}
+        />
+
         {loading ? (
           <p className="loading">Cargando productos...</p>
         ) : (
           <div className="products-grid">
-            {products.map((product) => (
-              <div key={product.id} className="product-card">
+            {filteredProducts.map((product) => (
+              <div
+                key={product.id}
+                className="product-card"
+                onClick={() => {setDetailProduct(product); setShowDetail(true);}}
+                style={{ cursor: "pointer" }}
+              >
                 <div className="product-image-container">
                   <img
                     src={product.image}
@@ -224,13 +193,8 @@ function App() {
                   <h3 className="product-name">{product.name}</h3>
                   <p className="product-description">{product.description}</p>
                   <div className="product-footer">
-                    <span className="product-price">${product.price.toFixed(2)}</span>
-                    <button
-                      className="product-buy-btn"
-                      onClick={() => addToCart(product.id)}
-                    >
-                      Añadir al carrito
-                    </button>
+                    <span className="product-price">${product.price?.toFixed(2)}</span>
+                    {/* Se sugiere usar el ItemCounter en detalle, no aquí directo */}
                   </div>
                 </div>
               </div>
@@ -238,6 +202,7 @@ function App() {
           </div>
         )}
       </div>
+      {/* Drawer carrito */}
       {showCart && (
         <CartDrawer
           cart={cart}
@@ -248,9 +213,24 @@ function App() {
           onPay={handlePay}
         />
       )}
+
+      {/* Modal detalle producto */}
+      <ProductDetail
+        product={detailProduct}
+        open={showDetail}
+        onClose={() => setShowDetail(false)}
+        onAddToCart={(id, cantidad) => addToCart(id, cantidad)}
+      />
+
+      {/* Formulario usuario / recibo */}
+      <UserFormModal
+        open={showUserForm}
+        onSubmit={handleUserFormSubmit}
+        onCancel={closeUserForm}
+        orderId={orderId}
+      />
     </>
   );
 }
 
 export default App;
-
